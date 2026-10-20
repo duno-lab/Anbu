@@ -57,3 +57,43 @@ export const authenticate: preHandlerHookHandler = async (
 
   request.user = { id: user.id }
 }
+
+export const authenticateOptional: preHandlerHookHandler = async (
+  request: FastifyRequest,
+  reply: FastifyReply
+) => {
+  request.user = null
+
+  const authorization = request.headers.authorization
+  const match = authorization?.match(/^Bearer\s+(.+)$/i)
+  const token = match?.[1]?.trim()
+
+  // No token means a public visitor.
+  if (!token) return
+
+  let payload: { userId: string; sessionId: string }
+
+  try {
+    payload = await verifyAccessToken(token)
+  } catch {
+    return reply.status(401).send({
+      error: {
+        code: 'INVALID_ACCESS_TOKEN',
+        message: 'Token invalide ou expiré.',
+      },
+    })
+  }
+
+  const user = await getAuthenticatedUser(payload.userId, payload.sessionId)
+
+  if (!user) {
+    return reply.status(401).send({
+      error: {
+        code: 'INVALID_SESSION',
+        message: 'Session invalide ou expirée.',
+      },
+    })
+  }
+
+  request.user = { id: user.id }
+}

@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 
-import { authenticate } from '../../plugins/authenticate.js'
+import { authenticate, authenticateOptional } from '../../plugins/authenticate.js'
 
 import {
   answerIdParamsSchema,
@@ -12,10 +12,18 @@ import {
 
 import { createAnswer, deleteAnswer, listAnswers, updateAnswer } from './answers.service.js'
 
+import {
+  answerVoteBodySchema,
+  answerVoteParamsSchema,
+} from '../answer-votes/answer-votes.schema.js'
+
+import { castAnswerVote } from '../answer-votes/answer-votes.service.js'
+
 export const answersRoutes: FastifyPluginAsync = async (app) => {
   // GET /questions/:questionId/answers
   app.get<{ Params: { questionId: string } }>(
     '/questions/:questionId/answers',
+    { preHandler: authenticateOptional },
     async (request, reply) => {
       const params = questionIdParamsSchema.safeParse(request.params)
 
@@ -40,7 +48,7 @@ export const answersRoutes: FastifyPluginAsync = async (app) => {
         })
       }
 
-      const result = await listAnswers(params.data.questionId, parsed.data)
+      const result = await listAnswers(params.data.questionId, parsed.data, request.user?.id)
 
       if (!result) {
         return reply.status(404).send({
@@ -180,4 +188,52 @@ export const answersRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(204).send()
     }
   )
+
+  // PUT /answers/:answerId/vote
+  app.put('/answers/:answerId/vote', async (request, reply) => {
+    if (!request.user) {
+      return reply.code(401).send({
+        message: 'Authentification requise.',
+      })
+    }
+
+    const params = answerVoteParamsSchema.safeParse(request.params)
+
+    if (!params.success) {
+      return reply.code(400).send({
+        message: 'Identifiant de réponse invalide.',
+      })
+    }
+
+    const body = answerVoteBodySchema.safeParse(request.body)
+
+    if (!body.success) {
+      return reply.code(400).send({
+        message: 'Vote invalide. Utilise UP ou DOWN.',
+        errors: body.error.flatten(),
+      })
+    }
+
+    const result = await castAnswerVote(params.data.answerId, request.user.id, body.data.value)
+
+    if (result.status === 'ANSWER_NOT_FOUND') {
+      return reply.code(404).send({
+        message: 'Réponse introuvable.',
+      })
+    }
+
+    if (result.status === 'SELF_VOTE_NOT_ALLOWED') {
+      return reply.code(403).send({
+        message: 'Tu ne peux pas voter pour ta propre réponse.',
+      })
+    }
+
+    return reply.code(200).send({
+      message: result.vote ? 'Vote enregistré.' : 'Vote retiré.',
+      vote: result.vote,
+      upvotes: result.upvotes,
+      downvotes: result.downvotes,
+      score: result.score,
+    })
+  })
 }
