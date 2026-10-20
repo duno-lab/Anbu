@@ -8,6 +8,8 @@ import {
   questionIdParamsSchema,
   questionSlugParamsSchema,
   updateQuestionSchema,
+  resolveQuestionSchema,
+  updateQuestionStatusSchema,
 } from './questions.schema.js'
 
 import {
@@ -16,7 +18,10 @@ import {
   getQuestionBySlug,
   listQuestions,
   updateQuestion,
+  setQuestionStatus,
 } from './questions.service.js'
+
+import { setQuestionResolution } from './questions.service.js'
 
 export const questionsRoutes: FastifyPluginAsync = async (app) => {
   // GET /questions
@@ -203,4 +208,112 @@ export const questionsRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(204).send()
     }
   )
+
+  // PATCH /questions/:id/resolve
+  app.patch<{ Params: { id: string } }>('/:id/resolve', async (request, reply) => {
+    if (!request.user) {
+      return reply.code(401).send({
+        message: 'Authentification requise.',
+      })
+    }
+
+    const params = questionIdParamsSchema.safeParse(request.params)
+
+    if (!params.success) {
+      return reply.code(400).send({
+        message: 'Identifiant de question invalide.',
+      })
+    }
+
+    const body = resolveQuestionSchema.safeParse(request.body)
+
+    if (!body.success) {
+      return reply.code(400).send({
+        message: 'Corps de requête invalide.',
+        errors: body.error.flatten(),
+      })
+    }
+
+    const result = await setQuestionResolution(
+      params.data.id,
+      request.user.id,
+      body.data.isResolved
+    )
+
+    if (result.status === 'QUESTION_NOT_FOUND') {
+      return reply.code(404).send({
+        message: 'Question introuvable.',
+      })
+    }
+
+    if (result.status === 'FORBIDDEN') {
+      return reply.code(403).send({
+        message: 'Seul l’auteur peut modifier la résolution.',
+      })
+    }
+
+    if (result.status !== 'UPDATED') {
+      return reply.code(500).send({
+        message: 'Impossible de mettre à jour la question.',
+      })
+    }
+
+    return reply.code(200).send({
+      message: result.question.isResolved
+        ? 'Question marquée comme résolue.'
+        : 'Question marquée comme non résolue.',
+      question: result.question,
+    })
+  })
+
+  // PATCH /questions/:id/status
+  app.patch('/:id/status', async (request, reply) => {
+    if (!request.user) {
+      return reply.code(401).send({
+        message: 'Authentification requise.',
+      })
+    }
+
+    const params = questionIdParamsSchema.safeParse(request.params)
+
+    if (!params.success) {
+      return reply.code(400).send({
+        message: 'Identifiant de question invalide.',
+      })
+    }
+
+    const body = updateQuestionStatusSchema.safeParse(request.body)
+
+    if (!body.success) {
+      return reply.code(400).send({
+        message: 'Statut invalide.',
+        errors: body.error.flatten(),
+      })
+    }
+
+    const result = await setQuestionStatus(params.data.id, request.user.id, body.data.status)
+
+    if (result.status === 'QUESTION_NOT_FOUND') {
+      return reply.code(404).send({
+        message: 'Question introuvable.',
+      })
+    }
+
+    if (result.status === 'FORBIDDEN') {
+      return reply.code(403).send({
+        message: 'Seul l’auteur peut modifier le statut.',
+      })
+    }
+
+    if (result.status !== 'UPDATED') {
+      return reply.code(500).send({
+        message: 'Impossible de modifier le statut.',
+      })
+    }
+
+    return reply.code(200).send({
+      message: result.question.status === 'CLOSED' ? 'Discussion fermée.' : 'Discussion rouverte.',
+      question: result.question,
+    })
+  })
 }

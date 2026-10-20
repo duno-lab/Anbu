@@ -30,6 +30,16 @@ export const listQuestionsQuerySchema = z.object({
   tag: z.string().trim().min(1).max(70).optional(),
 })
 
+export const resolveQuestionSchema = z.object({
+  isResolved: z.boolean(),
+})
+
+export const updateQuestionStatusSchema = z.object({
+  status: z.enum(['OPEN', 'CLOSED']),
+})
+
 export type CreateQuestionInput = z.infer<typeof createQuestionSchema>
 export type UpdateQuestionInput = z.infer<typeof updateQuestionSchema>
 export type ListQuestionsQuery = z.infer<typeof listQuestionsQuerySchema>
+export type ResolveQuestionInput = z.infer<typeof resolveQuestionSchema>
+export type UpdateQuestionStatusInput = z.infer<typeof updateQuestionStatusSchema>

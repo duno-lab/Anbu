@@ -252,3 +252,75 @@ export async function deleteQuestion(questionId: string, authorId: string): Prom
 
   return true
 }
+
+export async function setQuestionResolution(
+  questionId: string,
+  authorId: string,
+  isResolved: boolean
+) {
+  const [question] = await db.select().from(questions).where(eq(questions.id, questionId)).limit(1)
+
+  if (!question) {
+    return { status: 'QUESTION_NOT_FOUND' } as const
+  }
+
+  if (question.authorId !== authorId) {
+    return { status: 'FORBIDDEN' } as const
+  }
+
+  await db.update(questions).set({ isResolved }).where(eq(questions.id, questionId))
+
+  const [updatedQuestion] = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, questionId))
+    .limit(1)
+  if (!updatedQuestion) {
+    return { status: 'QUESTION_NOT_FOUND' } as const
+  }
+
+  return {
+    status: 'UPDATED',
+    question: updatedQuestion,
+  } as const
+}
+
+export async function setQuestionStatus(
+  questionId: string,
+  authorId: string,
+  status: 'OPEN' | 'CLOSED',
+) {
+  const [question] = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, questionId))
+    .limit(1)
+
+  if (!question) {
+    return { status: 'QUESTION_NOT_FOUND' } as const
+  }
+
+  if (question.authorId !== authorId) {
+    return { status: 'FORBIDDEN' } as const
+  }
+
+  await db
+    .update(questions)
+    .set({ status })
+    .where(eq(questions.id, questionId))
+
+  const [updatedQuestion] = await db
+    .select()
+    .from(questions)
+    .where(eq(questions.id, questionId))
+    .limit(1)
+
+  if (!updatedQuestion) {
+    return { status: 'QUESTION_NOT_FOUND' } as const
+  }
+
+  return {
+    status: 'UPDATED',
+    question: updatedQuestion,
+  } as const
+}
