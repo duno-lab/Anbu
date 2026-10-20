@@ -10,12 +10,10 @@ export type LogContext =
   | 'AUTH'
   | 'DB'
   | 'USER'
-  | 'GAME'
-  | 'MATCHMAKING'
-  | 'CLAN'
-  | 'WAR'
-  | 'CHAT'
-  | 'WS'
+  | 'ARTICLE'
+  | 'QUESTION'
+  | 'MODERATION'
+
 
 function createBaseLogger(): Logger {
   const isDevelopment =

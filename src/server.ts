@@ -5,7 +5,6 @@ import cors from '@fastify/cors'
 import cookie from '@fastify/cookie'
 
 import { env } from './config/env.js'
-import { createLogger } from './config/logger.js'
 import { loggingPlugin } from './plugins/logging.js'
 import { authRoutes } from './modules/auth/auth.routes.js'
 import { logger } from './lib/logger.js'
