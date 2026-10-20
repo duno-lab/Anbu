@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, exists, inArray } from 'drizzle-orm'
 
 import { db } from '../../db/index.js'
 import { questions } from '../../db/schema/questions.js'
+import { answers } from '../../db/schema/answers.js'
 import { questionTags } from '../../db/schema/question-tags.js'
 import { tags } from '../../db/schema/tags.js'
 
@@ -117,18 +118,21 @@ export async function createQuestion(authorId: string, input: CreateQuestionInpu
 export async function listQuestions(query: ListQuestionsQuery) {
   const offset = (query.page - 1) * query.limit
 
-  const conditions = query.tag
-    ? and(
-        eq(questions.status, 'OPEN'),
-        exists(
-          db
-            .select({ id: questionTags.questionId })
-            .from(questionTags)
-            .innerJoin(tags, eq(questionTags.tagId, tags.id))
-            .where(and(eq(questionTags.questionId, questions.id), eq(tags.slug, query.tag)))
-        )
-      )
-    : eq(questions.status, 'OPEN')
+  const conditions = and(
+    eq(questions.status, query.status),
+    ...(query.isResolved !== undefined ? [eq(questions.isResolved, query.isResolved)] : []),
+    ...(query.tag
+      ? [
+          exists(
+            db
+              .select({ id: questionTags.questionId })
+              .from(questionTags)
+              .innerJoin(tags, eq(questionTags.tagId, tags.id))
+              .where(and(eq(questionTags.questionId, questions.id), eq(tags.slug, query.tag)))
+          ),
+        ]
+      : [])
+  )
 
   const [items, countResult] = await Promise.all([
     db
@@ -139,6 +143,7 @@ export async function listQuestions(query: ListQuestionsQuery) {
         slug: questions.slug,
         content: questions.content,
         status: questions.status,
+        isResolved: questions.isResolved,
         createdAt: questions.createdAt,
         updatedAt: questions.updatedAt,
       })
@@ -151,13 +156,33 @@ export async function listQuestions(query: ListQuestionsQuery) {
     db.select({ total: count() }).from(questions).where(conditions),
   ])
 
-  const tagsByQuestion = await getTagsByQuestionIds(items.map((item) => item.id))
+  const questionIds = items.map((item) => item.id)
+
+  const [tagsByQuestion, answerCounts] = await Promise.all([
+    getTagsByQuestionIds(questionIds),
+
+    questionIds.length > 0
+      ? db
+          .select({
+            questionId: answers.questionId,
+            total: count(),
+          })
+          .from(answers)
+          .where(inArray(answers.questionId, questionIds))
+          .groupBy(answers.questionId)
+      : Promise.resolve([]),
+  ])
+
+  const answerCountByQuestion = new Map(
+    answerCounts.map((item) => [item.questionId, Number(item.total)])
+  )
 
   const total = Number(countResult[0]?.total ?? 0)
 
   return {
     items: items.map((item) => ({
       ...item,
+      answerCount: answerCountByQuestion.get(item.id) ?? 0,
       tags: tagsByQuestion.get(item.id) ?? [],
     })),
     pagination: {
@@ -288,13 +313,9 @@ export async function setQuestionResolution(
 export async function setQuestionStatus(
   questionId: string,
   authorId: string,
-  status: 'OPEN' | 'CLOSED',
+  status: 'OPEN' | 'CLOSED'
 ) {
-  const [question] = await db
-    .select()
-    .from(questions)
-    .where(eq(questions.id, questionId))
-    .limit(1)
+  const [question] = await db.select().from(questions).where(eq(questions.id, questionId)).limit(1)
 
   if (!question) {
     return { status: 'QUESTION_NOT_FOUND' } as const
@@ -304,10 +325,7 @@ export async function setQuestionStatus(
     return { status: 'FORBIDDEN' } as const
   }
 
-  await db
-    .update(questions)
-    .set({ status })
-    .where(eq(questions.id, questionId))
+  await db.update(questions).set({ status }).where(eq(questions.id, questionId))
 
   const [updatedQuestion] = await db
     .select()

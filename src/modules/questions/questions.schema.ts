@@ -24,10 +24,13 @@ export const questionSlugParamsSchema = z.object({
   slug: z.string().trim().min(1).max(220),
 })
 
+
 export const listQuestionsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(10),
   tag: z.string().trim().min(1).max(70).optional(),
+  status: z.enum(['OPEN', 'CLOSED']).default('OPEN'),
+  isResolved: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
 })
 
 export const resolveQuestionSchema = z.object({
