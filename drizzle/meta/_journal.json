@@ -15,6 +15,13 @@
       "when": 1792479483469,
       "tag": "0001_cooing_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1792480863489,
+      "tag": "0002_peaceful_arclight",
+      "breakpoints": true
     }
   ]
 }

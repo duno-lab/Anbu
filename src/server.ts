@@ -8,6 +8,7 @@ import { env } from './config/env.js'
 import { loggingPlugin } from './plugins/logging.js'
 import { authRoutes } from './modules/auth/auth.routes.js'
 import { articleRoutes } from './modules/articles/articles.routes.js'
+import { tagsRoutes } from './modules/tags/tags.routes.js'
 
 import { logger } from './lib/logger.js'
 
@@ -49,6 +50,8 @@ await app.register(authRoutes, {
 await app.register(articleRoutes, {
   prefix: '/articles',
 })
+
+await app.register(tagsRoutes, { prefix: '/tags' })
 
 app.get('/health', async () => {
   return {
