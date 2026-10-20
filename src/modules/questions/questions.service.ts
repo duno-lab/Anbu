@@ -1,0 +1,254 @@
+import { randomUUID } from 'node:crypto'
+import { and, asc, count, desc, eq, exists, inArray } from 'drizzle-orm'
+
+import { db } from '../../db/index.js'
+import { questions } from '../../db/schema/questions.js'
+import { questionTags } from '../../db/schema/question-tags.js'
+import { tags } from '../../db/schema/tags.js'
+
+import type {
+  CreateQuestionInput,
+  ListQuestionsQuery,
+  UpdateQuestionInput,
+} from './questions.schema.js'
+
+function createSlugBase(title: string): string {
+  return title
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 180)
+}
+
+async function generateUniqueSlug(title: string): Promise<string> {
+  const base = createSlugBase(title) || 'question'
+
+  // Random suffix prevents most concurrent slug collisions.
+  return `${base}-${randomUUID().slice(0, 8)}`
+}
+
+async function validateTagIds(tagIds: string[]): Promise<void> {
+  const uniqueIds = [...new Set(tagIds)]
+
+  if (uniqueIds.length !== tagIds.length) {
+    throw new Error('DUPLICATE_TAG_IDS')
+  }
+
+  if (uniqueIds.length === 0) {
+    throw new Error('QUESTION_REQUIRES_TAG')
+  }
+
+  const existingTags = await db
+    .select({ id: tags.id })
+    .from(tags)
+    .where(inArray(tags.id, uniqueIds))
+
+  if (existingTags.length !== uniqueIds.length) {
+    throw new Error('TAG_NOT_FOUND')
+  }
+}
+
+async function getTagsByQuestionIds(questionIds: string[]) {
+  const result = new Map<string, Array<{ id: string; name: string; slug: string }>>()
+
+  if (questionIds.length === 0) return result
+
+  const rows = await db
+    .select({
+      questionId: questionTags.questionId,
+      id: tags.id,
+      name: tags.name,
+      slug: tags.slug,
+    })
+    .from(questionTags)
+    .innerJoin(tags, eq(questionTags.tagId, tags.id))
+    .where(inArray(questionTags.questionId, questionIds))
+    .orderBy(asc(tags.name))
+
+  for (const row of rows) {
+    const current = result.get(row.questionId) ?? []
+
+    current.push({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+    })
+
+    result.set(row.questionId, current)
+  }
+
+  return result
+}
+
+export async function createQuestion(authorId: string, input: CreateQuestionInput) {
+  const tagIds = [...new Set(input.tagIds)]
+
+  if (tagIds.length !== input.tagIds.length) {
+    throw new Error('DUPLICATE_TAG_IDS')
+  }
+
+  await validateTagIds(tagIds)
+
+  const id = randomUUID()
+  const slug = await generateUniqueSlug(input.title)
+
+  await db.transaction(async (tx) => {
+    await tx.insert(questions).values({
+      id,
+      authorId,
+      title: input.title,
+      slug,
+      content: input.content,
+    })
+
+    await tx.insert(questionTags).values(
+      tagIds.map((tagId) => ({
+        questionId: id,
+        tagId,
+      }))
+    )
+  })
+
+  return getQuestionBySlug(slug)
+}
+
+export async function listQuestions(query: ListQuestionsQuery) {
+  const offset = (query.page - 1) * query.limit
+
+  const conditions = query.tag
+    ? and(
+        eq(questions.status, 'OPEN'),
+        exists(
+          db
+            .select({ id: questionTags.questionId })
+            .from(questionTags)
+            .innerJoin(tags, eq(questionTags.tagId, tags.id))
+            .where(and(eq(questionTags.questionId, questions.id), eq(tags.slug, query.tag)))
+        )
+      )
+    : eq(questions.status, 'OPEN')
+
+  const [items, countResult] = await Promise.all([
+    db
+      .select({
+        id: questions.id,
+        authorId: questions.authorId,
+        title: questions.title,
+        slug: questions.slug,
+        content: questions.content,
+        status: questions.status,
+        createdAt: questions.createdAt,
+        updatedAt: questions.updatedAt,
+      })
+      .from(questions)
+      .where(conditions)
+      .orderBy(desc(questions.createdAt), desc(questions.id))
+      .limit(query.limit)
+      .offset(offset),
+
+    db.select({ total: count() }).from(questions).where(conditions),
+  ])
+
+  const tagsByQuestion = await getTagsByQuestionIds(items.map((item) => item.id))
+
+  const total = Number(countResult[0]?.total ?? 0)
+
+  return {
+    items: items.map((item) => ({
+      ...item,
+      tags: tagsByQuestion.get(item.id) ?? [],
+    })),
+    pagination: {
+      page: query.page,
+      limit: query.limit,
+      total,
+      totalPages: Math.ceil(total / query.limit),
+    },
+  }
+}
+
+export async function getQuestionBySlug(slug: string) {
+  const [question] = await db.select().from(questions).where(eq(questions.slug, slug)).limit(1)
+
+  if (!question) return null
+
+  const tagsByQuestion = await getTagsByQuestionIds([question.id])
+
+  return {
+    ...question,
+    tags: tagsByQuestion.get(question.id) ?? [],
+  }
+}
+
+export async function updateQuestion(
+  questionId: string,
+  authorId: string,
+  input: UpdateQuestionInput
+) {
+  const [existing] = await db
+    .select({ id: questions.id })
+    .from(questions)
+    .where(and(eq(questions.id, questionId), eq(questions.authorId, authorId)))
+    .limit(1)
+
+  if (!existing) return null
+
+  if (input.tagIds !== undefined) {
+    await validateTagIds([...new Set(input.tagIds)])
+
+    if (new Set(input.tagIds).size !== input.tagIds.length) {
+      throw new Error('DUPLICATE_TAG_IDS')
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    const { tagIds, ...fields } = input
+
+    if (Object.keys(fields).length > 0) {
+      await tx
+        .update(questions)
+        .set({
+          ...fields,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(questions.id, questionId), eq(questions.authorId, authorId)))
+    }
+
+    if (tagIds !== undefined) {
+      await tx.delete(questionTags).where(eq(questionTags.questionId, questionId))
+
+      await tx.insert(questionTags).values(
+        [...new Set(tagIds)].map((tagId) => ({
+          questionId,
+          tagId,
+        }))
+      )
+    }
+  })
+
+  const [updated] = await db
+    .select({ slug: questions.slug })
+    .from(questions)
+    .where(eq(questions.id, questionId))
+    .limit(1)
+
+  return updated ? getQuestionBySlug(updated.slug) : null
+}
+
+export async function deleteQuestion(questionId: string, authorId: string): Promise<boolean> {
+  const [existing] = await db
+    .select({ id: questions.id })
+    .from(questions)
+    .where(and(eq(questions.id, questionId), eq(questions.authorId, authorId)))
+    .limit(1)
+
+  if (!existing) return false
+
+  await db
+    .delete(questions)
+    .where(and(eq(questions.id, questionId), eq(questions.authorId, authorId)))
+
+  return true
+}
