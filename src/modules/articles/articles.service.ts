@@ -1,12 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import {
-  and,
-  count,
-  desc,
-  eq,
-  isNotNull,
-  lt,
-} from 'drizzle-orm'
+import { and, count, desc, eq, isNotNull, lt, exists, asc, inArray } from 'drizzle-orm'
 
 import { db } from '../../db/index.js'
 import { articles } from '../../db/schema/articles.js'
@@ -16,6 +9,9 @@ import type {
   UpdateArticleInput,
   ListArticlesQuery,
 } from './articles.schema.js'
+
+import { articleTags } from '../../db/schema/article-tags.js'
+import { tags } from '../../db/schema/tags.js'
 
 function createSlugBase(title: string): string {
   return (
@@ -74,17 +70,67 @@ export async function createArticle(authorId: string, input: CreateArticleInput)
   return article
 }
 
+async function getTagsByArticleIds(articleIds: string[]) {
+  const result = new Map<string, Array<{ id: string; name: string; slug: string }>>()
 
-export async function listPublishedArticles(
-  query: ListArticlesQuery,
-) {
+  if (articleIds.length === 0) {
+    return result
+  }
+
+  const rows = await db
+    .select({
+      articleId: articleTags.articleId,
+      id: tags.id,
+      name: tags.name,
+      slug: tags.slug,
+    })
+    .from(articleTags)
+    .innerJoin(tags, eq(articleTags.tagId, tags.id))
+    .where(inArray(articleTags.articleId, articleIds))
+    .orderBy(asc(tags.name))
+
+  for (const row of rows) {
+    const articleTagList = result.get(row.articleId) ?? []
+
+    articleTagList.push({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+    })
+
+    result.set(row.articleId, articleTagList)
+  }
+
+  return result
+}
+
+export async function listPublishedArticles(query: ListArticlesQuery) {
   const offset = (query.page - 1) * query.limit
+  const now = new Date()
 
-  const conditions = and(
+  const publishedConditions = and(
     eq(articles.status, 'PUBLISHED'),
     isNotNull(articles.publishedAt),
-    lt(articles.publishedAt, new Date()),
-  )
+    lt(articles.publishedAt, now),
+  )!
+
+  const conditions = query.tag
+    ? and(
+        publishedConditions,
+        exists(
+          db
+            .select({ id: articleTags.articleId })
+            .from(articleTags)
+            .innerJoin(tags, eq(articleTags.tagId, tags.id))
+            .where(
+              and(
+                eq(articleTags.articleId, articles.id),
+                eq(tags.slug, query.tag),
+              ),
+            ),
+        ),
+      )!
+    : publishedConditions
 
   const [items, countResult] = await Promise.all([
     db
@@ -110,10 +156,17 @@ export async function listPublishedArticles(
       .where(conditions),
   ])
 
+  const tagsByArticle = await getTagsByArticleIds(
+    items.map((article) => article.id),
+  )
+
   const total = countResult[0]?.total ?? 0
 
   return {
-    items,
+    items: items.map((article) => ({
+      ...article,
+      tags: tagsByArticle.get(article.id) ?? [],
+    })),
     pagination: {
       page: query.page,
       limit: query.limit,
@@ -131,12 +184,22 @@ export async function getPublishedArticleBySlug(slug: string) {
       and(
         eq(articles.slug, slug),
         eq(articles.status, 'PUBLISHED'),
-        isNotNull(articles.publishedAt)
-      )
+        isNotNull(articles.publishedAt),
+        lt(articles.publishedAt, new Date()),
+      ),
     )
     .limit(1)
 
-  return article ?? null
+  if (!article) {
+    return null
+  }
+
+  const tagsByArticle = await getTagsByArticleIds([article.id])
+
+  return {
+    ...article,
+    tags: tagsByArticle.get(article.id) ?? [],
+  }
 }
 
 export async function updateArticle(
@@ -167,19 +230,11 @@ export async function updateArticle(
   return updated ?? null
 }
 
-export async function publishArticle(
-  articleId: string,
-  authorId: string,
-) {
+export async function publishArticle(articleId: string, authorId: string) {
   const [existing] = await db
     .select()
     .from(articles)
-    .where(
-      and(
-        eq(articles.id, articleId),
-        eq(articles.authorId, authorId),
-      ),
-    )
+    .where(and(eq(articles.id, articleId), eq(articles.authorId, authorId)))
     .limit(1)
 
   if (!existing) {
@@ -196,34 +251,17 @@ export async function publishArticle(
       publishedAt,
       updatedAt: new Date(),
     })
-    .where(
-      and(
-        eq(articles.id, articleId),
-        eq(articles.authorId, authorId),
-      ),
-    )
+    .where(and(eq(articles.id, articleId), eq(articles.authorId, authorId)))
 
-  const [updated] = await db
-    .select()
-    .from(articles)
-    .where(eq(articles.id, articleId))
-    .limit(1)
+  const [updated] = await db.select().from(articles).where(eq(articles.id, articleId)).limit(1)
 
   return updated ?? null
 }
 
-export async function deleteArticle(
-  articleId: string,
-  authorId: string,
-): Promise<boolean> {
+export async function deleteArticle(articleId: string, authorId: string): Promise<boolean> {
   const [result] = await db
     .delete(articles)
-    .where(
-      and(
-        eq(articles.id, articleId),
-        eq(articles.authorId, authorId),
-      ),
-    )
+    .where(and(eq(articles.id, articleId), eq(articles.authorId, authorId)))
 
   return result.affectedRows > 0
 }

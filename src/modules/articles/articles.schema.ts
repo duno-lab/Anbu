@@ -24,6 +24,7 @@ export const articleSlugParamsSchema = z.object({
 export const listArticlesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(10),
+  tag: z.string().trim().min(1).max(70).optional(),
 })
 
 export type CreateArticleInput = z.infer<typeof createArticleSchema>
