@@ -111,7 +111,7 @@ export async function listPublishedArticles(query: ListArticlesQuery) {
   const publishedConditions = and(
     eq(articles.status, 'PUBLISHED'),
     isNotNull(articles.publishedAt),
-    lt(articles.publishedAt, now),
+    lt(articles.publishedAt, now)
   )!
 
   const conditions = query.tag
@@ -122,13 +122,8 @@ export async function listPublishedArticles(query: ListArticlesQuery) {
             .select({ id: articleTags.articleId })
             .from(articleTags)
             .innerJoin(tags, eq(articleTags.tagId, tags.id))
-            .where(
-              and(
-                eq(articleTags.articleId, articles.id),
-                eq(tags.slug, query.tag),
-              ),
-            ),
-        ),
+            .where(and(eq(articleTags.articleId, articles.id), eq(tags.slug, query.tag)))
+        )
       )!
     : publishedConditions
 
@@ -150,15 +145,10 @@ export async function listPublishedArticles(query: ListArticlesQuery) {
       .limit(query.limit)
       .offset(offset),
 
-    db
-      .select({ total: count() })
-      .from(articles)
-      .where(conditions),
+    db.select({ total: count() }).from(articles).where(conditions),
   ])
 
-  const tagsByArticle = await getTagsByArticleIds(
-    items.map((article) => article.id),
-  )
+  const tagsByArticle = await getTagsByArticleIds(items.map((article) => article.id))
 
   const total = countResult[0]?.total ?? 0
 
@@ -185,8 +175,8 @@ export async function getPublishedArticleBySlug(slug: string) {
         eq(articles.slug, slug),
         eq(articles.status, 'PUBLISHED'),
         isNotNull(articles.publishedAt),
-        lt(articles.publishedAt, new Date()),
-      ),
+        lt(articles.publishedAt, new Date())
+      )
     )
     .limit(1)
 

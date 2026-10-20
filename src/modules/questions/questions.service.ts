@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, count, desc, eq, exists, inArray } from 'drizzle-orm'
+import { and, asc, count, desc, eq, exists, inArray, max, sql } from 'drizzle-orm'
 
 import { db } from '../../db/index.js'
 import { questions } from '../../db/schema/questions.js'
@@ -134,6 +134,27 @@ export async function listQuestions(query: ListQuestionsQuery) {
       : [])
   )
 
+  // Aggregate answer statistics once per question.
+  const answerStats = db
+    .select({
+      questionId: answers.questionId,
+      answerCount: count().as('answer_count'),
+      lastAnswerAt: max(answers.createdAt).as('last_answer_at'),
+    })
+    .from(answers)
+    .groupBy(answers.questionId)
+    .as('answer_stats')
+
+  const ordering =
+    query.sort === 'mostAnswered'
+      ? [desc(answerStats.answerCount), desc(questions.createdAt), desc(questions.id)]
+      : query.sort === 'recentActivity'
+        ? [
+            desc(sql`COALESCE(${answerStats.lastAnswerAt}, ${questions.createdAt})`),
+            desc(questions.id),
+          ]
+        : [desc(questions.createdAt), desc(questions.id)]
+
   const [items, countResult] = await Promise.all([
     db
       .select({
@@ -146,43 +167,26 @@ export async function listQuestions(query: ListQuestionsQuery) {
         isResolved: questions.isResolved,
         createdAt: questions.createdAt,
         updatedAt: questions.updatedAt,
+        answerCount: answerStats.answerCount,
       })
       .from(questions)
+      .leftJoin(answerStats, eq(answerStats.questionId, questions.id))
       .where(conditions)
-      .orderBy(desc(questions.createdAt), desc(questions.id))
+      .orderBy(...ordering)
       .limit(query.limit)
       .offset(offset),
 
     db.select({ total: count() }).from(questions).where(conditions),
   ])
 
-  const questionIds = items.map((item) => item.id)
-
-  const [tagsByQuestion, answerCounts] = await Promise.all([
-    getTagsByQuestionIds(questionIds),
-
-    questionIds.length > 0
-      ? db
-          .select({
-            questionId: answers.questionId,
-            total: count(),
-          })
-          .from(answers)
-          .where(inArray(answers.questionId, questionIds))
-          .groupBy(answers.questionId)
-      : Promise.resolve([]),
-  ])
-
-  const answerCountByQuestion = new Map(
-    answerCounts.map((item) => [item.questionId, Number(item.total)])
-  )
+  const tagsByQuestion = await getTagsByQuestionIds(items.map((item) => item.id))
 
   const total = Number(countResult[0]?.total ?? 0)
 
   return {
     items: items.map((item) => ({
       ...item,
-      answerCount: answerCountByQuestion.get(item.id) ?? 0,
+      answerCount: Number(item.answerCount ?? 0),
       tags: tagsByQuestion.get(item.id) ?? [],
     })),
     pagination: {
