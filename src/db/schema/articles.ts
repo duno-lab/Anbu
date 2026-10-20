@@ -1,4 +1,3 @@
-
 import {
   index,
   mysqlEnum,
@@ -11,10 +10,7 @@ import {
 
 import { users } from './users.js'
 
-export const articleStatus = mysqlEnum('status', [
-  'DRAFT',
-  'PUBLISHED',
-])
+export const articleStatus = mysqlEnum('status', ['DRAFT', 'PUBLISHED'])
 
 export const articles = mysqlTable(
   'articles',
@@ -55,11 +51,8 @@ export const articles = mysqlTable(
   (table) => [
     uniqueIndex('articles_slug_unique').on(table.slug),
     index('articles_author_id_idx').on(table.authorId),
-    index('articles_status_published_at_idx').on(
-      table.status,
-      table.publishedAt,
-    ),
-  ],
+    index('articles_status_published_at_idx').on(table.status, table.publishedAt),
+  ]
 )
 
 export type Article = typeof articles.$inferSelect

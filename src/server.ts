@@ -9,6 +9,8 @@ import { loggingPlugin } from './plugins/logging.js'
 import { authRoutes } from './modules/auth/auth.routes.js'
 import { articleRoutes } from './modules/articles/articles.routes.js'
 import { tagsRoutes } from './modules/tags/tags.routes.js'
+import { questionsRoutes } from './modules/questions/questions.routes.js'
+import { answersRoutes } from './modules/answers/answers.routes.js'
 
 import { logger } from './lib/logger.js'
 
@@ -52,6 +54,10 @@ await app.register(articleRoutes, {
 })
 
 await app.register(tagsRoutes, { prefix: '/tags' })
+
+await app.register(questionsRoutes, { prefix: '/questions' })
+
+await app.register(answersRoutes)
 
 app.get('/health', async () => {
   return {

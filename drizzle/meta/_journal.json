@@ -22,6 +22,27 @@
       "when": 1792480863489,
       "tag": "0002_peaceful_arclight",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1792483477478,
+      "tag": "0003_overrated_lockjaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1792483789990,
+      "tag": "0004_rapid_jetstream",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1792484387844,
+      "tag": "0005_yielding_tyrannus",
+      "breakpoints": true
     }
   ]
 }

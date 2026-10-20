@@ -1,9 +1,4 @@
-
-import type {
-  FastifyReply,
-  FastifyRequest,
-  preHandlerHookHandler,
-} from 'fastify'
+import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify'
 
 import { verifyAccessToken } from '../modules/auth/access-token.service.js'
 import { getAuthenticatedUser } from '../modules/auth/auth.service.js'
@@ -20,7 +15,7 @@ declare module 'fastify' {
 
 export const authenticate: preHandlerHookHandler = async (
   request: FastifyRequest,
-  reply: FastifyReply,
+  reply: FastifyReply
 ) => {
   const authorization = request.headers.authorization
   const match = authorization?.match(/^Bearer\s+(.+)$/i)
@@ -49,10 +44,7 @@ export const authenticate: preHandlerHookHandler = async (
   }
 
   // Verify that the session is still active in the database.
-  const user = await getAuthenticatedUser(
-    payload.userId,
-    payload.sessionId,
-  )
+  const user = await getAuthenticatedUser(payload.userId, payload.sessionId)
 
   if (!user) {
     return reply.status(401).send({

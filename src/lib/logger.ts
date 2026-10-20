@@ -1,28 +1,15 @@
-import pino, {
-  type Logger,
-} from 'pino'
+import pino, { type Logger } from 'pino'
 
 import { env } from '../config/env.js'
 
 export type LogContext =
-  | 'SERVER'
-  | 'HTTP'
-  | 'AUTH'
-  | 'DB'
-  | 'USER'
-  | 'ARTICLE'
-  | 'QUESTION'
-  | 'MODERATION'
-
+  'SERVER' | 'HTTP' | 'AUTH' | 'DB' | 'USER' | 'ARTICLE' | 'QUESTION' | 'MODERATION'
 
 function createBaseLogger(): Logger {
-  const isDevelopment =
-    env.NODE_ENV === 'development'
+  const isDevelopment = env.NODE_ENV === 'development'
 
   return pino({
-    level: isDevelopment
-      ? 'debug'
-      : 'info',
+    level: isDevelopment ? 'debug' : 'info',
 
     ...(isDevelopment
       ? {
@@ -31,8 +18,7 @@ function createBaseLogger(): Logger {
             options: {
               colorize: true,
               translateTime: 'HH:MM:ss',
-              ignore:
-                'pid,hostname',
+              ignore: 'pid,hostname',
               singleLine: true,
             },
           },
@@ -41,12 +27,9 @@ function createBaseLogger(): Logger {
   })
 }
 
-export const logger =
-  createBaseLogger()
+export const logger = createBaseLogger()
 
-export function createContextLogger(
-  context: LogContext,
-): Logger {
+export function createContextLogger(context: LogContext): Logger {
   return logger.child({
     context,
   })
