@@ -7,11 +7,11 @@ import cookie from '@fastify/cookie'
 import { env } from './config/env.js'
 import { loggingPlugin } from './plugins/logging.js'
 import { authRoutes } from './modules/auth/auth.routes.js'
+import { articleRoutes } from './modules/articles/articles.routes.js'
+
 import { logger } from './lib/logger.js'
 
-function getErrorStatusCode(
-  error: unknown,
-): number {
+function getErrorStatusCode(error: unknown): number {
   if (
     typeof error === 'object' &&
     error !== null &&
@@ -26,12 +26,12 @@ function getErrorStatusCode(
   return 500
 }
 
-
-
 const app = Fastify({
   loggerInstance: logger,
   disableRequestLogging: true,
 })
+
+app.decorateRequest('user', null)
 
 await app.register(cors, {
   origin: env.CORS_ORIGIN,
@@ -46,6 +46,10 @@ await app.register(authRoutes, {
   prefix: '/auth',
 })
 
+await app.register(articleRoutes, {
+  prefix: '/articles',
+})
+
 app.get('/health', async () => {
   return {
     status: 'ok',
@@ -53,38 +57,30 @@ app.get('/health', async () => {
   }
 })
 
-app.setErrorHandler(
-  async (error, request, reply) => {
-    request.log.error(
-      {
-        context: 'HTTP',
-        error,
-        method: request.method,
-        url: request.url,
-      },
-      'Request failed',
-    )
+app.setErrorHandler(async (error, request, reply) => {
+  request.log.error(
+    {
+      context: 'HTTP',
+      error,
+      method: request.method,
+      url: request.url,
+    },
+    'Request failed'
+  )
 
-    const statusCode =
-      getErrorStatusCode(error)
+  const statusCode = getErrorStatusCode(error)
 
-    return reply
-      .status(statusCode)
-      .send({
-        message:
-          statusCode >= 500
-            ? 'Internal server error'
-            : error instanceof Error
-              ? error.message
-              : 'Request failed',
-      })
-  },
-)
+  return reply.status(statusCode).send({
+    message:
+      statusCode >= 500
+        ? 'Internal server error'
+        : error instanceof Error
+          ? error.message
+          : 'Request failed',
+  })
+})
 
-const host =
-  env.NODE_ENV === 'production'
-    ? '0.0.0.0'
-    : '127.0.0.1'
+const host = env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'
 
 try {
   await app.listen({
@@ -99,7 +95,7 @@ try {
       host,
       port: env.PORT,
     },
-    'LAB API started',
+    'LAB API started'
   )
 } catch (error) {
   app.log.fatal(
@@ -107,7 +103,7 @@ try {
       context: 'SERVER',
       error,
     },
-    'Failed to start LAB API',
+    'Failed to start LAB API'
   )
 
   process.exit(1)
