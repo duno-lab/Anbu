@@ -11,6 +11,7 @@ import { articleRoutes } from './modules/articles/articles.routes.js'
 import { tagsRoutes } from './modules/tags/tags.routes.js'
 import { questionsRoutes } from './modules/questions/questions.routes.js'
 import { answersRoutes } from './modules/answers/answers.routes.js'
+import { searchRoutes } from './modules/search/search.routes.js'
 
 import { logger } from './lib/logger.js'
 
@@ -58,6 +59,8 @@ await app.register(tagsRoutes, { prefix: '/tags' })
 await app.register(questionsRoutes, { prefix: '/questions' })
 
 await app.register(answersRoutes)
+
+await app.register(searchRoutes)
 
 app.get('/health', async () => {
   return {
