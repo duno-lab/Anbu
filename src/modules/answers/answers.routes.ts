@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify'
 
-import { authenticate } from '../../plugins/authenticate.js'
+import { authenticate, authenticateOptional } from '../../plugins/authenticate.js'
 
 import {
   answerIdParamsSchema,
@@ -23,6 +23,7 @@ export const answersRoutes: FastifyPluginAsync = async (app) => {
   // GET /questions/:questionId/answers
   app.get<{ Params: { questionId: string } }>(
     '/questions/:questionId/answers',
+    { preHandler: authenticateOptional },
     async (request, reply) => {
       const params = questionIdParamsSchema.safeParse(request.params)
 
@@ -47,7 +48,7 @@ export const answersRoutes: FastifyPluginAsync = async (app) => {
         })
       }
 
-      const result = await listAnswers(params.data.questionId, parsed.data)
+      const result = await listAnswers(params.data.questionId, parsed.data, request.user?.id)
 
       if (!result) {
         return reply.status(404).send({

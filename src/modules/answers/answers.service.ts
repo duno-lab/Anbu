@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { and, count, desc, eq } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, sql } from 'drizzle-orm'
 
 import { db } from '../../db/index.js'
 import { answers } from '../../db/schema/answers.js'
 import { questions } from '../../db/schema/questions.js'
+import { answerVotes } from '../../db/schema/answer-votes.js'
 
 import type { CreateAnswerInput, ListAnswersQuery, UpdateAnswerInput } from './answers.schema.js'
 
@@ -42,7 +43,7 @@ export async function createAnswer(questionId: string, authorId: string, input: 
   }
 }
 
-export async function listAnswers(questionId: string, query: ListAnswersQuery) {
+export async function listAnswers(questionId: string, query: ListAnswersQuery, userId?: string) {
   const [question] = await db
     .select({ id: questions.id })
     .from(questions)
@@ -68,8 +69,79 @@ export async function listAnswers(questionId: string, query: ListAnswersQuery) {
 
   const total = Number(countResult[0]?.total ?? 0)
 
+  // Skip vote queries when the current page contains no answers.
+  if (items.length === 0) {
+    return {
+      items: [],
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
+    }
+  }
+
+  const answerIds = items.map((answer) => answer.id)
+
+  const voteCounts = await db
+    .select({
+      answerId: answerVotes.answerId,
+      upvotes: sql<number>`
+        COALESCE(
+          SUM(CASE WHEN ${answerVotes.value} = 'UP' THEN 1 ELSE 0 END),
+          0
+        )
+      `,
+      downvotes: sql<number>`
+        COALESCE(
+          SUM(CASE WHEN ${answerVotes.value} = 'DOWN' THEN 1 ELSE 0 END),
+          0
+        )
+      `,
+    })
+    .from(answerVotes)
+    .where(inArray(answerVotes.answerId, answerIds))
+    .groupBy(answerVotes.answerId)
+
+  const myVotes = userId
+    ? await db
+        .select({
+          answerId: answerVotes.answerId,
+          value: answerVotes.value,
+        })
+        .from(answerVotes)
+        .where(and(inArray(answerVotes.answerId, answerIds), eq(answerVotes.userId, userId)))
+    : []
+
+  const countsByAnswer = new Map(
+    voteCounts.map((vote) => [
+      vote.answerId,
+      {
+        upvotes: Number(vote.upvotes),
+        downvotes: Number(vote.downvotes),
+      },
+    ])
+  )
+
+  const myVotesByAnswer = new Map(myVotes.map((vote) => [vote.answerId, vote.value]))
+
+  const enrichedItems = items.map((answer) => {
+    const counts = countsByAnswer.get(answer.id) ?? {
+      upvotes: 0,
+      downvotes: 0,
+    }
+
+    return {
+      ...answer,
+      ...counts,
+      score: counts.upvotes - counts.downvotes,
+      myVote: myVotesByAnswer.get(answer.id) ?? null,
+    }
+  })
+
   return {
-    items,
+    items: enrichedItems,
     pagination: {
       page: query.page,
       limit: query.limit,
