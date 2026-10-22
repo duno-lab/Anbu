@@ -2,8 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { and, count, desc, eq, isNotNull, lt, exists, asc, inArray } from 'drizzle-orm'
 
 import { db } from '../../db/index.js'
-import { articles } from '../../db/schema/articles.js'
-
+import { articles, users } from '../../db/schema/index.js'
 import type {
   CreateArticleInput,
   UpdateArticleInput,
@@ -135,11 +134,19 @@ export async function listPublishedArticles(query: ListArticlesQuery) {
         title: articles.title,
         slug: articles.slug,
         excerpt: articles.excerpt,
+        content: articles.content,
         status: articles.status,
         publishedAt: articles.publishedAt,
         createdAt: articles.createdAt,
+
+        author: {
+          id: users.id,
+          username: users.username,
+          avatarUrl: users.avatarUrl,
+        },
       })
       .from(articles)
+      .innerJoin(users, eq(articles.authorId, users.id))
       .where(conditions)
       .orderBy(desc(articles.publishedAt), desc(articles.id))
       .limit(query.limit)
@@ -152,18 +159,28 @@ export async function listPublishedArticles(query: ListArticlesQuery) {
 
   const total = countResult[0]?.total ?? 0
 
-  return {
-    items: items.map((article) => ({
+return {
+  items: items.map(({ content, ...article }) => {
+    const normalizedContent = content.trim().replace(/\s+/g, ' ')
+    const excerpt =
+      article.excerpt?.trim() ||
+      (normalizedContent.length > 220
+        ? `${normalizedContent.slice(0, 220).trimEnd()}…`
+        : normalizedContent)
+
+    return {
       ...article,
+      excerpt,
       tags: tagsByArticle.get(article.id) ?? [],
-    })),
-    pagination: {
-      page: query.page,
-      limit: query.limit,
-      total,
-      totalPages: Math.ceil(total / query.limit),
-    },
-  }
+    }
+  }),
+  pagination: {
+    page: query.page,
+    limit: query.limit,
+    total,
+    totalPages: Math.ceil(total / query.limit),
+  },
+}
 }
 
 export async function getPublishedArticleBySlug(slug: string) {
