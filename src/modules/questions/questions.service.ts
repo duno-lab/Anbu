@@ -2,11 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { and, asc, count, desc, eq, exists, inArray, max, sql } from 'drizzle-orm'
 
 import { db } from '../../db/index.js'
-import { questions } from '../../db/schema/questions.js'
-import { answers } from '../../db/schema/answers.js'
-import { questionTags } from '../../db/schema/question-tags.js'
-import { tags } from '../../db/schema/tags.js'
-
+import { users, tags, questions, answers, questionTags } from '../../db/schema/index.js'
 import type {
   CreateQuestionInput,
   ListQuestionsQuery,
@@ -134,7 +130,6 @@ export async function listQuestions(query: ListQuestionsQuery) {
       : [])
   )
 
-  // Aggregate answer statistics once per question.
   const answerStats = db
     .select({
       questionId: answers.questionId,
@@ -168,9 +163,15 @@ export async function listQuestions(query: ListQuestionsQuery) {
         createdAt: questions.createdAt,
         updatedAt: questions.updatedAt,
         answerCount: answerStats.answerCount,
+        author: {
+          id: users.id,
+          username: users.username,
+          avatarUrl: users.avatarUrl,
+        },
       })
       .from(questions)
       .leftJoin(answerStats, eq(answerStats.questionId, questions.id))
+      .leftJoin(users, eq(questions.authorId, users.id))
       .where(conditions)
       .orderBy(...ordering)
       .limit(query.limit)
@@ -186,6 +187,7 @@ export async function listQuestions(query: ListQuestionsQuery) {
   return {
     items: items.map((item) => ({
       ...item,
+      author: item.author?.id ? item.author : null,
       answerCount: Number(item.answerCount ?? 0),
       tags: tagsByQuestion.get(item.id) ?? [],
     })),
@@ -199,14 +201,29 @@ export async function listQuestions(query: ListQuestionsQuery) {
 }
 
 export async function getQuestionBySlug(slug: string) {
-  const [question] = await db.select().from(questions).where(eq(questions.slug, slug)).limit(1)
+  const [result] = await db
+    .select({
+      question: questions,
+      author: {
+        id: users.id,
+        username: users.username,
+        avatarUrl: users.avatarUrl,
+      },
+    })
+    .from(questions)
+    .leftJoin(users, eq(questions.authorId, users.id))
+    .where(eq(questions.slug, slug))
+    .limit(1)
 
-  if (!question) return null
+  if (!result) return null
+
+  const { question, author } = result
 
   const tagsByQuestion = await getTagsByQuestionIds([question.id])
 
   return {
     ...question,
+    author: author?.id ? author : null,
     tags: tagsByQuestion.get(question.id) ?? [],
   }
 }
